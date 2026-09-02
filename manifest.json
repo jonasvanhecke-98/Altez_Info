@@ -1,0 +1,9 @@
+{
+  "title": "ALTEZ Info",
+  "url": "https://jonasvanhecke-98.github.io/Altez_Info/",
+  "icon": "https://jonasvanhecke-98.github.io/Altez_Info/info-icon.svg",
+  "description": "Projectinformatie, projectlocatie en nuttige internetlinks.",
+  "enabled": true,
+  "configCommand": "edit-info",
+  "extensionType": ["project"]
+}

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#c8102e">
+  <title>ALTEZ Info</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><img src="info-icon.svg" alt=""><span>ALTEZ Info</span></div>
+    <button id="editToggle" class="secondary" type="button">Bewerken</button>
+  </header>
+
+  <main>
+    <section id="projectView" class="view active" aria-labelledby="projectHeading">
+      <div class="hero">
+        <p class="eyebrow">PROJECTINFORMATIE</p>
+        <h1 id="projectHeading">Projectinformatie</h1>
+        <p id="projectDescription" class="intro"></p>
+      </div>
+      <div class="grid">
+        <article class="card details-card">
+          <h2>Gegevens</h2>
+          <dl id="projectDetails"></dl>
+        </article>
+        <article class="card map-card">
+          <div class="card-heading"><h2>Locatie</h2><a id="mapsLink" class="button" target="_blank" rel="noopener noreferrer">Open in Google Maps</a></div>
+          <iframe id="mapFrame" title="Projectlocatie in Google Maps" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+        </article>
+      </div>
+    </section>
+
+    <section id="linksView" class="view" aria-labelledby="linksHeading">
+      <div class="hero compact"><p class="eyebrow">SNELKOPPELINGEN</p><h1 id="linksHeading">Links</h1></div>
+      <div id="linksList" class="links-grid"></div>
+      <p id="linksEmpty" class="empty" hidden>Er zijn nog geen links toegevoegd.</p>
+    </section>
+
+    <section id="editorView" class="view" aria-labelledby="editorHeading">
+      <div class="hero compact"><p class="eyebrow">BEHEER</p><h1 id="editorHeading">Informatie bewerken</h1></div>
+      <form id="settingsForm" class="editor-layout">
+        <article class="card form-card">
+          <h2>Projectinformatie</h2>
+          <label>Projectnaam<input name="projectName" required></label>
+          <label>Omschrijving<textarea name="description" rows="3"></textarea></label>
+          <label>Adres<input name="address" placeholder="Straat 1, 2000 Antwerpen" required></label>
+          <div class="two-cols">
+            <label>Projectnummer<input name="projectNumber"></label>
+            <label>Bouwheer<input name="client"></label>
+          </div>
+        </article>
+        <article class="card form-card">
+          <div class="card-heading"><h2>Links</h2><button id="addLink" type="button" class="secondary">Link toevoegen</button></div>
+          <div id="linkEditor"></div>
+        </article>
+        <div class="form-actions"><button type="submit" class="button">Wijzigingen opslaan</button><button id="cancelEdit" type="button" class="secondary">Annuleren</button></div>
+      </form>
+    </section>
+  </main>
+
+  <nav class="bottom-nav" aria-label="Hoofdnavigatie">
+    <button data-view="projectView" data-command="project-information" class="active"><span class="nav-icon">⌂</span>Projectinformatie</button>
+    <button data-view="linksView" data-command="links"><span class="nav-icon">↗</span>Links</button>
+  </nav>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
