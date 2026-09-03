@@ -1,421 +1,261 @@
-(function(){
-  'use strict';
+function flattenProperties(object) {
+  const result = [];
 
-  const DEFAULTS={
-    projectName:'Nieuw project',
-    description:'Vul hier de belangrijkste projectinformatie in.',
-    address:'Industrielaan 16, 8890 Moorslede, België',
-    projectNumber:'',
-    client:'',
-    links:[
+  const propertySets = Array.isArray(object?.properties)
+    ? object.properties
+    : [];
+
+  for (const propertySet of propertySets) {
+    const setName = String(propertySet?.set ?? '').trim();
+
+    const properties = Array.isArray(propertySet?.properties)
+      ? propertySet.properties
+      : [];
+
+    for (const property of properties) {
+      if (!property) continue;
+
+      const name = String(property.name ?? '').trim();
+
+      if (!name) continue;
+
+      result.push({
+        set: setName,
+        name,
+        type: property.type,
+        value: property.value
+      });
+    }
+  }
+
+  return result;
+}
+
+
+function getAvailableFields() {
+  const fields = new Map();
+
+  for (const row of selectionRows) {
+    const properties = flattenProperties(row.object);
+
+    for (const property of properties) {
+      /*
+       * Uniek op echte propertyset + echte propertynaam.
+       *
+       * Dus GEEN eigen "Algemeen",
+       * GEEN Cast Unit Mark toevoegen,
+       * GEEN namen opsplitsen.
+       */
+      const key =
+        `${property.set}\u0000${property.name}`;
+
+      if (!fields.has(key)) {
+        fields.set(key, {
+          set: property.set,
+          name: property.name,
+          label: property.name
+        });
+      }
+    }
+  }
+
+  return [...fields.values()].sort((a, b) => {
+    const left =
+      `${a.set}\u0000${a.name}`;
+
+    const right =
+      `${b.set}\u0000${b.name}`;
+
+    return left.localeCompare(
+      right,
+      undefined,
       {
-        title:'ALTEZ',
-        url:'https://www.altez.eu',
-        description:'Website van ALTEZ.'
+        numeric: true,
+        sensitivity: 'base'
       }
-    ]
-  };
+    );
+  });
+}
 
-  let api=null,
-      projectId='standalone',
-      data=null;
 
-  const $=s=>document.querySelector(s);
-  const $$=s=>Array.from(document.querySelectorAll(s));
-  const clone=v=>JSON.parse(JSON.stringify(v));
+async function refreshSelection() {
+  if (!API) return;
 
-  const storageKey=()=>`altez-info:${projectId}`;
-
-  const safeUrl=value=>{
-    try{
-      const u=new URL(value);
-      return ['http:','https:'].includes(u.protocol) ? u.href : '#';
-    }catch{
-      return '#';
-    }
-  };
-
-  const esc=value=>String(value??'').replace(
-    /[&<>"']/g,
-    c=>({
-      '&':'&amp;',
-      '<':'&lt;',
-      '>':'&gt;',
-      '"':'&quot;',
-      "'":'&#039;'
-    }[c])
+  setStatus(
+    'Geselecteerde elementen en parameters inlezen...'
   );
 
-  function load(){
-    try{
-      data={
-        ...clone(DEFAULTS),
-        ...JSON.parse(localStorage.getItem(storageKey())||'{}')
-      };
+  try {
+    const selectedGroups =
+      await API.viewer.getObjects({
+        selected: true
+      }) || [];
 
-      data.links=Array.isArray(data.links) ? data.links : [];
-    }catch{
-      data=clone(DEFAULTS);
+    const rows = [];
+    const seen = new Set();
+
+    /*
+     * Trimble retourneert ModelObjects[]:
+     *
+     * [
+     *   {
+     *     modelId: "...",
+     *     objects: [...]
+     *   }
+     * ]
+     */
+    for (const group of selectedGroups) {
+      const modelId = group?.modelId;
+
+      if (!modelId) continue;
+
+      const selectedObjects =
+        Array.isArray(group?.objects)
+          ? group.objects
+          : [];
+
+      /*
+       * Runtime IDs verzamelen.
+       */
+      const runtimeIds =
+        selectedObjects
+          .map(object =>
+            Number(object?.id)
+          )
+          .filter(Number.isFinite);
+
+      if (!runtimeIds.length) continue;
+
+      /*
+       * ZEER BELANGRIJK:
+       *
+       * Niet vertrouwen op de properties
+       * die eventueel al in getObjects zitten.
+       *
+       * Altijd opnieuw getObjectProperties()
+       * gebruiken.
+       */
+      const fullObjects =
+        await API.viewer.getObjectProperties(
+          modelId,
+          runtimeIds
+        ) || [];
+
+      for (const object of fullObjects) {
+        const id =
+          Number(object?.id);
+
+        if (!Number.isFinite(id)) continue;
+
+        const key =
+          `${modelId}:${id}`;
+
+        if (seen.has(key)) continue;
+
+        seen.add(key);
+
+        rows.push({
+          modelId,
+          id,
+          object
+        });
+      }
     }
 
-    render();
-  }
+    selectionRows = rows;
 
-  function save(){
-    localStorage.setItem(storageKey(),JSON.stringify(data));
-    render();
-    show('Wijzigingen opgeslagen');
-  }
+    const availableFields =
+      getAvailableFields();
 
-  function mapsUrls(){
-    const q=encodeURIComponent(data.address||'');
+    $('selectedCount').textContent =
+      selectionRows.length;
 
-    return{
-      embed:`https://www.google.com/maps?q=${q}&output=embed`,
-      open:`https://www.google.com/maps/search/?api=1&query=${q}`
-    };
-  }
+    $('markCount').textContent =
+      availableFields.length;
 
-  function render(){
-    $('#projectHeading').textContent=
-      data.projectName||'Projectinformatie';
+    if (!selectionRows.length) {
+      $('selectionHint').textContent =
+        'Selecteer één of meer elementen in de 3D Viewer.';
 
-    $('#projectDescription').textContent=
-      data.description||'';
+      setStatus(
+        'Geen geselecteerde objecten gevonden.'
+      );
 
-    const details=[
-      ['Adres',data.address],
-      ['Projectnummer',data.projectNumber],
-      ['Bouwheer',data.client]
-    ].filter(([,v])=>v);
+      renderPresets(
+        $('presetSelect')?.value
+      );
 
-    $('#projectDetails').innerHTML=
-      details.map(([k,v])=>
-        `<div class="detail-row">
-          <dt>${esc(k)}</dt>
-          <dd>${esc(v)}</dd>
-        </div>`
-      ).join('')
-      ||
-      '<p class="empty">Nog geen projectgegevens ingevuld.</p>';
+      return;
+    }
 
-    const maps=mapsUrls();
+    $('selectionHint').textContent =
+      `${availableFields.length} parameters rechtstreeks uit Trimble gelezen.`;
 
-    $('#mapFrame').src=maps.embed;
-    $('#mapsLink').href=maps.open;
-
-    $('#linksList').innerHTML=
-      data.links.map(l=>
-        `<article class="link-card">
-          <h2>${esc(l.title||'Link')}</h2>
-          <p>${esc(l.description||'')}</p>
-          <a
-            href="${esc(safeUrl(l.url))}"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Website openen →
-          </a>
-        </article>`
-      ).join('');
-
-    $('#linksEmpty').hidden=data.links.length>0;
-  }
-
-  function showView(id){
-    $$('.view').forEach(v=>
-      v.classList.toggle('active',v.id===id)
+    /*
+     * Diagnose.
+     *
+     * Hiermee kunnen we exact controleren
+     * wat Trimble teruggeeft.
+     */
+    console.group(
+      'ALTEZ OBJECTINFO - RAW TRIMBLE PROPERTIES'
     );
 
-    $$('.bottom-nav button').forEach(b=>
-      b.classList.toggle('active',b.dataset.view===id)
+    for (const row of selectionRows) {
+      console.log(
+        `Model ${row.modelId} / runtimeId ${row.id}`,
+        row.object
+      );
+
+      console.table(
+        flattenProperties(row.object)
+          .map(property => ({
+            PropertySet:
+              property.set,
+
+            Property:
+              property.name,
+
+            Type:
+              property.type,
+
+            Value:
+              property.value
+          }))
+      );
+    }
+
+    console.groupEnd();
+
+    /*
+     * Nu pas preset opnieuw renderen,
+     * gebaseerd op de werkelijk
+     * beschikbare fields.
+     */
+    renderPresets(
+      $('presetSelect')?.value
     );
 
-    window.scrollTo(0,0);
+    setStatus(
+      `${selectionRows.length} element(en) ingelezen - ${availableFields.length} parameters gevonden.`
+    );
+
+  } catch (error) {
+    console.error(
+      'ALTEZ Objectinfo - uitlezen mislukt',
+      error
+    );
+
+    selectionRows = [];
+
+    $('selectedCount').textContent = '0';
+    $('markCount').textContent = '0';
+
+    $('selectionHint').textContent =
+      'Selecteer één of meer elementen in de 3D Viewer.';
+
+    setStatus(
+      `Parameters uitlezen mislukt: ${error?.message || error}`
+    );
   }
-
-  function fillEditor(){
-    const f=$('#settingsForm');
-
-    [
-      'projectName',
-      'description',
-      'address',
-      'projectNumber',
-      'client'
-    ].forEach(n=>{
-      f.elements[n].value=data[n]||'';
-    });
-
-    renderLinkEditor();
-  }
-
-  function renderLinkEditor(){
-    const host=$('#linkEditor');
-
-    host.innerHTML=data.links.map((l,i)=>
-      `<div class="link-edit-row" data-index="${i}">
-        <label>
-          Titel
-          <input
-            data-field="title"
-            value="${esc(l.title)}"
-          >
-        </label>
-
-        <label>
-          Internetadres
-          <input
-            data-field="url"
-            type="url"
-            value="${esc(l.url)}"
-            placeholder="https://..."
-          >
-        </label>
-
-        <button
-          class="secondary remove-link"
-          type="button"
-        >
-          Verwijderen
-        </button>
-
-        <label style="grid-column:1/-1">
-          Omschrijving
-          <input
-            data-field="description"
-            value="${esc(l.description||'')}"
-          >
-        </label>
-      </div>`
-    ).join('');
-  }
-
-  function editorToData(){
-    const f=$('#settingsForm');
-
-    [
-      'projectName',
-      'description',
-      'address',
-      'projectNumber',
-      'client'
-    ].forEach(n=>{
-      data[n]=f.elements[n].value.trim();
-    });
-
-    data.links=$$('.link-edit-row')
-      .map(row=>({
-        title:row.querySelector('[data-field=title]').value.trim(),
-        url:row.querySelector('[data-field=url]').value.trim(),
-        description:row.querySelector('[data-field=description]').value.trim()
-      }))
-      .filter(l=>l.title||l.url);
-  }
-
-  function show(msg){
-    const t=$('#toast');
-
-    t.textContent=msg;
-    t.classList.add('show');
-
-    setTimeout(()=>{
-      t.classList.remove('show');
-    },2200);
-  }
-
-  async function connect(){
-
-    if(!window.TrimbleConnectWorkspace){
-      return load();
-    }
-
-    try{
-
-      api=await window.TrimbleConnectWorkspace.connect(
-        window.parent,
-        (event,args)=>{
-
-          if(event==='extension.command'){
-
-            const cmd=
-              args&&args.data
-                ? args.data
-                : args;
-
-            if(cmd==='project-information'){
-              showView('projectView');
-            }
-
-            if(cmd==='links'){
-              showView('linksView');
-            }
-
-            if(cmd==='edit-info'){
-              fillEditor();
-              showView('editorView');
-            }
-          }
-
-        },
-        30000
-      );
-
-      const project=
-        await api.project.getCurrentProject();
-
-      projectId=
-        project&&project.id
-          ? project.id
-          : 'standalone';
-
-      await api.ui.setMenu({
-        title:'Info',
-        icon:new URL(
-          'info-icon.svg',
-          location.href
-        ).href,
-
-        command:'project-information',
-
-        subMenus:[
-          {
-            title:'Projectinformatie',
-            icon:new URL(
-              'project-icon.svg',
-              location.href
-            ).href,
-            command:'project-information'
-          },
-          {
-            title:'Links',
-            icon:new URL(
-              'link-icon.svg',
-              location.href
-            ).href,
-            command:'links'
-          }
-        ]
-      });
-
-      // BELANGRIJK:
-      // Hier stond vroeger:
-      //
-      // await api.ui.setActiveMenuItem('project-information');
-      //
-      // Die regel is bewust verwijderd zodat
-      // ALTEZ Info zichzelf niet automatisch activeert.
-
-      load();
-
-    }catch(err){
-
-      console.warn(
-        'Trimble Connect niet beschikbaar; standalone modus.',
-        err
-      );
-
-      load();
-    }
-  }
-
-  $$('.bottom-nav button').forEach(b=>
-    b.addEventListener('click',async()=>{
-
-      showView(b.dataset.view);
-
-      if(api){
-        try{
-          await api.ui.setActiveMenuItem(
-            b.dataset.command
-          );
-        }catch{}
-      }
-
-    })
-  );
-
-  $('#editToggle').addEventListener(
-    'click',
-    ()=>{
-      fillEditor();
-      showView('editorView');
-    }
-  );
-
-  $('#cancelEdit').addEventListener(
-    'click',
-    ()=>{
-      showView('projectView');
-    }
-  );
-
-  $('#addLink').addEventListener(
-    'click',
-    ()=>{
-
-      editorToData();
-
-      data.links.push({
-        title:'',
-        url:'',
-        description:''
-      });
-
-      renderLinkEditor();
-    }
-  );
-
-  $('#linkEditor').addEventListener(
-    'click',
-    e=>{
-
-      if(
-        !e.target.classList.contains(
-          'remove-link'
-        )
-      ){
-        return;
-      }
-
-      editorToData();
-
-      data.links.splice(
-        Number(
-          e.target
-            .closest('.link-edit-row')
-            .dataset.index
-        ),
-        1
-      );
-
-      renderLinkEditor();
-    }
-  );
-
-  $('#settingsForm').addEventListener(
-    'submit',
-    e=>{
-
-      e.preventDefault();
-
-      editorToData();
-
-      if(
-        data.links.some(
-          l=>safeUrl(l.url)==='#'
-        )
-      ){
-        return show(
-          'Controleer het internetadres'
-        );
-      }
-
-      save();
-      showView('projectView');
-    }
-  );
-
-  connect();
-
-})();
+}
